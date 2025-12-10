@@ -13,42 +13,42 @@
       in
       {
         packages = {
-          default = pkgs.buildGoModule {
+          default = pkgs.buildGoModule rec {
             pname = "obsrvr-lake-writer";
             version = "0.1.0";
+
             src = ./.;
 
-            # Let Nix handle dependency fetching
-            # To update: nix build 2>&1 | grep "got:" | awk '{print $2}'
-            vendorHash = null;
-
-            # Working directory for Go modules
+            # Go module is in ./go subdirectory
             modRoot = "./go";
 
-            # Set environment variables for go builds
-            env = {
-              GO111MODULE = "on";
-            };
+            # Vendor hash - computed from go.sum
+            # Update this hash if dependencies change
+            vendorHash = "sha256-Rg8hrSiW25KfhznbSJXAbfVu+BnyRSluJYtgm4smMdc=";
 
-            # Customize Go build to work with our project structure
+            # Disable Go workspace
+            preConfigure = ''
+              export GOWORK=off
+            '';
+
+            # Generate proto files before build
             preBuild = ''
-              # Generate protobuf files first
+              cd ..
+              # Generate protobuf files
               echo "Generating protobuf files..."
               mkdir -p go/gen/lake_writer
 
-              # Run protoc
               protoc \
-                --proto_path=./protos \
-                --go_out=./go/gen \
+                --proto_path=protos \
+                --go_out=go/gen \
                 --go_opt=paths=source_relative \
                 --go_opt=Mlake_writer/lake_writer.proto=github.com/withObsrvr/obsrvr-lake-writer/gen/lake_writer \
-                --go-grpc_out=./go/gen \
+                --go-grpc_out=go/gen \
                 --go-grpc_opt=paths=source_relative \
                 --go-grpc_opt=Mlake_writer/lake_writer.proto=github.com/withObsrvr/obsrvr-lake-writer/gen/lake_writer \
-                ./protos/lake_writer/lake_writer.proto
+                protos/lake_writer/lake_writer.proto
 
               # Create go.mod for generated code
-              echo "Creating go.mod for generated code..."
               cat > go/gen/lake_writer/go.mod <<EOF
 module github.com/withObsrvr/obsrvr-lake-writer/gen/lake_writer
 
@@ -60,32 +60,15 @@ require (
 )
 EOF
 
-              # Add replace directive to main go.mod
-              echo "Adding replace directive..."
               cd go
-              echo 'replace github.com/withObsrvr/obsrvr-lake-writer/gen/lake_writer => ./gen/lake_writer' >> go.mod
-              cd ..
+              # Update main go.mod to include replace directive if not present
+              if ! grep -q "replace github.com/withObsrvr/obsrvr-lake-writer/gen/lake_writer" go.mod; then
+                echo 'replace github.com/withObsrvr/obsrvr-lake-writer/gen/lake_writer => ./gen/lake_writer' >> go.mod
+              fi
             '';
 
-            buildPhase = ''
-              runHook preBuild
-              # Disable go workspace mode
-              export GOWORK=off
-
-              # Build from go directory
-              cd go
-              go build -o ../lake-writer ./cmd/server/main.go
-              cd ..
-              runHook postBuild
-            '';
-
-            installPhase = ''
-              runHook preInstall
-              mkdir -p $out/bin
-              cp lake-writer $out/bin/
-              chmod +x $out/bin/lake-writer
-              runHook postInstall
-            '';
+            # Build the main binary
+            subPackages = [ "cmd/server" ];
 
             # Add any native build dependencies
             nativeBuildInputs = [
