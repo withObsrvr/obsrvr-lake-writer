@@ -1,0 +1,35 @@
+# Lake Writer Configuration - Local Development
+
+service:
+  name: "lake-writer"
+  listen_address: ":50099"  # gRPC API
+  health_port: 8088          # Health/Metrics HTTP
+
+catalog:
+  # Local DuckDB catalog for development
+  catalog_path: "ducklake:duckdb:./data/catalogs/local.duckdb"
+
+  # S3/B2 credentials (optional for local dev with filesystem)
+  # aws_access_key_id: "${AWS_ACCESS_KEY_ID}"
+  # aws_secret_access_key: "${AWS_SECRET_ACCESS_KEY}"
+  # aws_region: "us-west-004"
+  # aws_endpoint: "https://s3.us-west-004.backblazeb2.com"
+
+databases:
+  - name: "testnet"
+    data_path: "./data/testnet/"
+
+  - name: "mainnet"
+    data_path: "./data/mainnet/"
+
+  - name: "futurenet"
+    data_path: "./data/futurenet/"
+
+writer:
+  queue_size: 1000          # Max queued write requests
+  flush_interval_ms: 100    # Flush interval (currently unused)
+  max_batch_size: 1000      # Max rows per batch
+
+logging:
+  level: "info"             # debug, info, warn, error
+  format: "console"         # console or json
