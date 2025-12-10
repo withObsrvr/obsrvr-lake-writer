@@ -1,0 +1,222 @@
+syntax = "proto3";
+
+package obsrvr.lake.v1;
+
+option go_package = "github.com/withObsrvr/obsrvr-lake-writer/gen/lake_writer;lake_writer";
+
+// ---------- Enums ----------
+
+// Data format for the incoming batch payload
+enum DataFormat {
+  DATA_FORMAT_UNSPECIFIED = 0;
+  DATA_FORMAT_ARROW_IPC   = 1;  // Arrow Flight / IPC batch
+  DATA_FORMAT_PARQUET     = 2;  // Parquet file bytes
+  DATA_FORMAT_JSON_LINES  = 3;  // newline-delimited JSON
+}
+
+// How to interpret the schema field
+enum SchemaKind {
+  SCHEMA_KIND_UNSPECIFIED = 0;
+  SCHEMA_KIND_ARROW       = 1;  // Arrow schema JSON
+  SCHEMA_KIND_AVRO        = 2;  // Avro schema JSON
+  SCHEMA_KIND_JSON_SCHEMA = 3;  // JSON Schema draft format
+}
+
+// Strategy for creating/evolving target table
+enum TableWriteMode {
+  TABLE_WRITE_MODE_UNSPECIFIED = 0;
+
+  // Fail if table does not exist
+  TABLE_WRITE_MODE_REQUIRE_EXISTING = 1;
+
+  // Create table if it does not exist; schema is taken from request
+  TABLE_WRITE_MODE_CREATE_IF_MISSING = 2;
+
+  // Allow additive schema evolution (e.g., new nullable columns)
+  TABLE_WRITE_MODE_EVOLVE_ADDITIVE = 3;
+}
+
+// ---------- Core messages ----------
+
+// Describes the logical destination in the lake
+message Destination {
+  // Tenant routing; can be empty for core/global
+  string tenant_id  = 1;
+
+  // Logical database / schema inside the DuckLake catalog
+  // e.g. "testnet", "mainnet", "futurenet"
+  string database   = 2;
+
+  // Logical table name, e.g. "ledgers_row_v2", "transactions_row_v2"
+  string table      = 3;
+}
+
+// Schema description for the incoming batch
+message SchemaDescriptor {
+  SchemaKind kind   = 1;
+  string     schema = 2; // serialized text representation of the schema
+}
+
+// Optional hints for partitioning/clustering
+message PartitionHints {
+  // e.g. "date", "ledger_range", "asset_code"
+  repeated string partition_keys = 1;
+
+  // Arbitrary hints ("day=2025-12-07", "asset=USDC", etc.)
+  map<string, string> static_values = 2;
+}
+
+// Request to write a single batch into the lake
+message WriteBatchRequest {
+  Destination destination         = 1;
+
+  // Who is sending this batch (for tracing/observability)
+  string pipeline_id              = 2;
+  string batch_id                 = 3; // unique per pipeline
+
+  // Optional: wall clock time the batch was produced
+  int64 produced_at_unix_ms       = 4;
+
+  DataFormat   format             = 5;
+  bytes        payload            = 6;
+
+  // Optional schema description (used for create/evolve)
+  SchemaDescriptor schema         = 7;
+
+  // How to handle table existence/evolution
+  TableWriteMode table_write_mode = 8;
+
+  // Optional partition hints so lake-writer can decide where/how to write
+  PartitionHints partition_hints  = 9;
+
+  // User-defined metadata/tags (e.g. asset, network, environment)
+  map<string, string> tags        = 10;
+}
+
+// Result of writing a batch
+message WriteBatchResponse {
+  enum Status {
+    STATUS_UNSPECIFIED = 0;
+    STATUS_OK          = 1;
+    STATUS_SKIP        = 2;  // e.g. duplicate batch id ignored
+    STATUS_RETRYABLE   = 3;
+    STATUS_PERMANENT_ERROR = 4;
+  }
+
+  Status status            = 1;
+  string message           = 2;
+
+  // Number of rows successfully written
+  uint64 rows_written      = 3;
+
+  // Optional: watermark (e.g. max ledger sequence, max timestamp) observed in this batch
+  string watermark_key     = 4; // e.g. "ledger_sequence" or "timestamp"
+  string watermark_value   = 5;
+
+  // Optional: physical locations created/updated
+  repeated string file_uris = 6;
+
+  // Idempotency echo
+  string batch_id          = 7;
+}
+
+// ---------- Table / data product management ----------
+
+// Declare a logical data product/table ahead of time
+message RegisterTableRequest {
+  Destination   destination   = 1;
+
+  // Optional human-readable description
+  string        description   = 2;
+
+  // Initial schema if you want to pre-create the table
+  SchemaDescriptor schema     = 3;
+
+  // Partitioning / clustering strategy
+  PartitionHints partitioning = 4;
+
+  // Arbitrary config (e.g. retention days, compaction policy)
+  map<string, string> config  = 5;
+}
+
+message RegisterTableResponse {
+  bool created        = 1; // true if table was created; false if it already existed
+  string table_path   = 2; // physical path in the lake, if applicable
+}
+
+// Request to trigger compaction/optimization
+message CompactTableRequest {
+  Destination destination = 1;
+
+  // Optional: compact only a subset (e.g. date=2025-12-07)
+  map<string, string> partition_filter = 2;
+
+  // Optional: compaction "level" or policy name
+  string policy = 3;
+}
+
+message CompactTableResponse {
+  bool accepted       = 1;
+  string job_id       = 2;
+}
+
+// Lightweight metadata about a table
+message GetTableInfoRequest {
+  Destination destination = 1;
+}
+
+message GetTableInfoResponse {
+  Destination destination = 1;
+
+  // Serialized schema (from DuckDB)
+  SchemaDescriptor schema = 2;
+
+  // Approx stats
+  uint64 row_count        = 3;
+  uint64 file_count       = 4;
+
+  // Most recent watermark seen
+  string watermark_key    = 5;
+  string watermark_value  = 6;
+}
+
+// ---------- Health and Metrics ----------
+
+message HealthCheckRequest {}
+
+message HealthCheckResponse {
+  enum Status {
+    STATUS_UNKNOWN = 0;
+    STATUS_HEALTHY = 1;
+    STATUS_DEGRADED = 2;
+    STATUS_UNHEALTHY = 3;
+  }
+
+  Status status = 1;
+  string message = 2;
+
+  // Optional metrics
+  uint64 queue_depth = 3;
+  uint64 writes_per_second = 4;
+  uint64 total_writes = 5;
+  uint64 total_errors = 6;
+}
+
+// ---------- Service ----------
+
+service LakeWriter {
+  // Hot path: pipelines call this to append a batch
+  rpc WriteBatch(WriteBatchRequest) returns (WriteBatchResponse);
+
+  // Control: declare or ensure a table exists
+  rpc RegisterTable(RegisterTableRequest) returns (RegisterTableResponse);
+
+  // Maintenance: trigger compaction/optimization
+  rpc CompactTable(CompactTableRequest) returns (CompactTableResponse);
+
+  // Observability: basic info for dashboards / Flow control plane
+  rpc GetTableInfo(GetTableInfoRequest) returns (GetTableInfoResponse);
+
+  // Health check for monitoring
+  rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);
+}

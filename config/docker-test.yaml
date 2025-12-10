@@ -1,0 +1,25 @@
+server:
+  grpc_port: ":50099"
+  health_port: ":8088"
+  shutdown_timeout: 30s
+
+catalog:
+  type: "duckdb"
+  path: "/data/catalogs/docker-test.duckdb"
+
+databases:
+  - name: "testnet"
+    data_path: "/data/testnet/"
+  - name: "mainnet"
+    data_path: "/data/mainnet/"
+  - name: "futurenet"
+    data_path: "/data/futurenet/"
+
+queue:
+  max_size: 1000
+  worker_count: 1
+  flush_on_shutdown: true
+
+logging:
+  level: "info"
+  format: "json"

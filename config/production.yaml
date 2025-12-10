@@ -1,0 +1,38 @@
+# Lake Writer Configuration - Production
+
+service:
+  name: "lake-writer"
+  listen_address: ":50099"  # gRPC API
+  health_port: 8088          # Health/Metrics HTTP
+
+catalog:
+  # DuckDB catalog on S3/Backblaze B2
+  # Note: For production, catalog file should be on local disk for performance
+  # Data files can be on S3/B2
+  catalog_path: "./data/catalogs/obsrvr.duckdb"
+
+  # S3/B2 credentials (from environment variables)
+  # Use these for S3-based data_path below
+  aws_access_key_id: "${AWS_ACCESS_KEY_ID}"
+  aws_secret_access_key: "${AWS_SECRET_ACCESS_KEY}"
+  aws_region: "us-west-004"
+  aws_endpoint: "https://s3.us-west-004.backblazeb2.com"
+
+databases:
+  - name: "testnet"
+    data_path: "s3://obsrvr-test-bucket-1/testnet_4/"
+
+  - name: "mainnet"
+    data_path: "s3://obsrvr-test-bucket-1/mainnet/"
+
+  - name: "futurenet"
+    data_path: "s3://obsrvr-test-bucket-1/futurenet/"
+
+writer:
+  queue_size: 10000         # Larger queue for production
+  flush_interval_ms: 100    # Flush interval
+  max_batch_size: 10000     # Max rows per batch
+
+logging:
+  level: "info"             # debug, info, warn, error
+  format: "json"            # console or json

@@ -1,0 +1,57 @@
+# Binaries
+lake-writer
+test-client
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test binaries
+*.test
+*.out
+
+# Go workspace file
+go.work
+go.work.sum
+
+# Build artifacts
+result
+result-*
+
+# Generated files
+go/gen/
+
+# Vendor
+go/vendor/
+
+# Config secrets
+config/*.secret.yaml
+config/local-*.yaml
+*.env
+
+# Data directories
+data/
+catalogs/
+*.duckdb
+*.duckdb.wal
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+tmp/
+temp/
+concurrent-test
+docs/shape-up/
