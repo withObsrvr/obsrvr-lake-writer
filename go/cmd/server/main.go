@@ -76,6 +76,15 @@ func main() {
 	// Initialize metrics
 	metricsCollector := metrics.NewCollector()
 
+	// Convert database configs
+	databases := make([]catalog.DatabaseConfig, len(cfg.Databases))
+	for i, db := range cfg.Databases {
+		databases[i] = catalog.DatabaseConfig{
+			Name:     db.Name,
+			DataPath: db.DataPath,
+		}
+	}
+
 	// Initialize catalog manager
 	catalogMgr, err := catalog.NewManager(ctx, catalog.ManagerConfig{
 		CatalogPath:    cfg.Catalog.CatalogPath,
@@ -83,7 +92,7 @@ func main() {
 		AWSSecretKey:   cfg.Catalog.AWSSecretKey,
 		AWSRegion:      cfg.Catalog.AWSRegion,
 		AWSEndpoint:    cfg.Catalog.AWSEndpoint,
-		Databases:      cfg.Databases,
+		Databases:      databases,
 	})
 	if err != nil {
 		log.Fatalf("Failed to initialize catalog: %v", err)

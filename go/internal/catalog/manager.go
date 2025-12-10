@@ -5,10 +5,17 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"os"
 	"sync"
 
 	_ "github.com/duckdb/duckdb-go/v2"
 )
+
+// DatabaseConfig represents a database configuration
+type DatabaseConfig struct {
+	Name     string
+	DataPath string
+}
 
 // ManagerConfig holds catalog manager configuration
 type ManagerConfig struct {
@@ -17,10 +24,7 @@ type ManagerConfig struct {
 	AWSSecretKey   string
 	AWSRegion      string
 	AWSEndpoint    string
-	Databases      []struct {
-		Name     string
-		DataPath string
-	}
+	Databases      []DatabaseConfig
 }
 
 // Manager handles DuckDB catalog operations
@@ -131,7 +135,7 @@ func (m *Manager) ensureDatabase(name, dataPath string) error {
 }
 
 // EnsureTable creates a table if it doesn't exist
-func (m *Manager) EnsureTable(database, table, schema string) error {
+func (m *Manager) EnsureTable(database, table string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -140,17 +144,16 @@ func (m *Manager) EnsureTable(database, table, schema string) error {
 		return nil // Already created
 	}
 
-	// TODO: Parse schema and create table
-	// For now, this is a placeholder
-	// In actual implementation, we'd parse the Arrow schema or SQL DDL
+	// Get schema DDL from our predefined schemas
+	schemaDDL := GetTableSchema(table)
 
-	query := fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s.%s (%s);", database, table, schema)
+	query := fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s.%s (%s);", database, table, schemaDDL)
 	if _, err := m.db.ExecContext(m.ctx, query); err != nil {
 		return fmt.Errorf("create table: %w", err)
 	}
 
 	m.tables[key] = true
-	log.Printf("Ensured table: %s.%s", database, table)
+	log.Printf("✓ Ensured table: %s.%s", database, table)
 
 	return nil
 }
@@ -160,17 +163,70 @@ func (m *Manager) WriteBatch(database, table string, payload []byte, format stri
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// TODO: Implement actual write logic
-	// For v1, this would:
-	// 1. Parse payload (Arrow IPC / Parquet / JSONL)
-	// 2. INSERT INTO database.table SELECT * FROM read_arrow/read_parquet(...)
-	// 3. Return row count
-
 	log.Printf("WriteBatch: database=%s, table=%s, format=%s, size=%d bytes",
 		database, table, format, len(payload))
 
-	// Placeholder: return 0 rows written
-	return 0, nil
+	// Ensure table exists
+	if err := m.ensureTableUnlocked(database, table); err != nil {
+		return 0, fmt.Errorf("ensure table: %w", err)
+	}
+
+	// For Day 1-2: Simple approach using temporary file
+	// TODO Day 3-4: Direct Arrow IPC / Parquet parsing
+
+	// Write payload to temporary file
+	tempFile := fmt.Sprintf("/tmp/lake_writer_%s_%s_%d.parquet", database, table, len(payload))
+	if err := m.writeTempFile(tempFile, payload); err != nil {
+		return 0, fmt.Errorf("write temp file: %w", err)
+	}
+	defer m.cleanupTempFile(tempFile)
+
+	// Use DuckDB's read_parquet to load data
+	insertQuery := fmt.Sprintf(
+		"INSERT INTO %s.%s SELECT * FROM read_parquet('%s');",
+		database, table, tempFile,
+	)
+
+	result, err := m.db.ExecContext(m.ctx, insertQuery)
+	if err != nil {
+		return 0, fmt.Errorf("insert from parquet: %w", err)
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	log.Printf("✓ Wrote %d rows to %s.%s", rowsAffected, database, table)
+
+	return uint64(rowsAffected), nil
+}
+
+// ensureTableUnlocked creates a table without acquiring the lock (caller must hold lock)
+func (m *Manager) ensureTableUnlocked(database, table string) error {
+	key := fmt.Sprintf("%s.%s", database, table)
+	if m.tables[key] {
+		return nil // Already created
+	}
+
+	schemaDDL := GetTableSchema(table)
+	query := fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s.%s (%s);", database, table, schemaDDL)
+
+	if _, err := m.db.ExecContext(m.ctx, query); err != nil {
+		return fmt.Errorf("create table: %w", err)
+	}
+
+	m.tables[key] = true
+	log.Printf("✓ Created table: %s.%s", database, table)
+	return nil
+}
+
+// writeTempFile writes payload to a temporary file
+func (m *Manager) writeTempFile(path string, data []byte) error {
+	return os.WriteFile(path, data, 0644)
+}
+
+// cleanupTempFile removes a temporary file
+func (m *Manager) cleanupTempFile(path string) {
+	if err := os.Remove(path); err != nil {
+		log.Printf("Warning: failed to remove temp file %s: %v", path, err)
+	}
 }
 
 // GetTableInfo retrieves table metadata

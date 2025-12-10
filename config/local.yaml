@@ -7,7 +7,7 @@ service:
 
 catalog:
   # Local DuckDB catalog for development
-  catalog_path: "ducklake:duckdb:./data/catalogs/local.duckdb"
+  catalog_path: "./data/catalogs/local.duckdb"
 
   # S3/B2 credentials (optional for local dev with filesystem)
   # aws_access_key_id: "${AWS_ACCESS_KEY_ID}"

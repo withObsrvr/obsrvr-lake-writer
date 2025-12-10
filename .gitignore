@@ -1,5 +1,6 @@
 # Binaries
 lake-writer
+test-client
 *.exe
 *.dll
 *.so

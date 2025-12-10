@@ -18,38 +18,25 @@
             version = "0.1.0";
             src = ./.;
 
-            # Use vendored dependencies for improved build reliability
+            # Let Nix handle dependency fetching
+            # To update: nix build 2>&1 | grep "got:" | awk '{print $2}'
             vendorHash = null;
-            modVendorDir = "./go/vendor";
 
-            # Skip the go module verification
-            allowVendorCheck = false;
-
-            # Add more Go flags to bypass module checks
-            buildFlags = ["-mod=vendor" "-modcacherw"];
-
+            # Working directory for Go modules
+            modRoot = "./go";
 
             # Set environment variables for go builds
             env = {
-              GOPROXY = "off";
+              GO111MODULE = "on";
             };
 
             # Customize Go build to work with our project structure
             preBuild = ''
-              # Make sure vendor directory is properly set up before build
-              if [ -d "go/vendor" ]; then
-                echo "Using existing vendor directory"
-              else
-                echo "No vendor directory found, this will likely fail"
-              fi
-
-              # Generate protobuf files
+              # Generate protobuf files first
               echo "Generating protobuf files..."
-
-              # First create the output directory
               mkdir -p go/gen/lake_writer
 
-              # Run protoc directly
+              # Run protoc
               protoc \
                 --proto_path=./protos \
                 --go_out=./go/gen \
@@ -60,10 +47,24 @@
                 --go-grpc_opt=Mlake_writer/lake_writer.proto=github.com/withObsrvr/obsrvr-lake-writer/gen/lake_writer \
                 ./protos/lake_writer/lake_writer.proto
 
-              echo "Updating go.mod with replace directives..."
+              # Create go.mod for generated code
+              echo "Creating go.mod for generated code..."
+              cat > go/gen/lake_writer/go.mod <<EOF
+module github.com/withObsrvr/obsrvr-lake-writer/gen/lake_writer
+
+go 1.25
+
+require (
+	google.golang.org/grpc v1.75.0
+	google.golang.org/protobuf v1.36.8
+)
+EOF
+
+              # Add replace directive to main go.mod
+              echo "Adding replace directive..."
               cd go
               echo 'replace github.com/withObsrvr/obsrvr-lake-writer/gen/lake_writer => ./gen/lake_writer' >> go.mod
-              GOWORK=off go mod tidy
+              cd ..
             '';
 
             buildPhase = ''
@@ -71,20 +72,17 @@
               # Disable go workspace mode
               export GOWORK=off
 
+              # Build from go directory
               cd go
-              # Build using vendored deps if available
-              if [ -d "vendor" ]; then
-                go build -mod=vendor -o ../lake-writer ./cmd/server/main.go
-              else
-                go build -mod=vendor -o ../lake-writer ./cmd/server/main.go
-              fi
+              go build -o ../lake-writer ./cmd/server/main.go
+              cd ..
               runHook postBuild
             '';
 
             installPhase = ''
               runHook preInstall
               mkdir -p $out/bin
-              cp ../lake-writer $out/bin/
+              cp lake-writer $out/bin/
               chmod +x $out/bin/lake-writer
               runHook postInstall
             '';

@@ -65,7 +65,16 @@ gen-proto: init
 		--go-grpc_opt=paths=source_relative \
 		--go-grpc_opt=Mlake_writer/lake_writer.proto=$(GO_PACKAGE_BASE)/gen/lake_writer \
 		lake_writer/lake_writer.proto
-	@echo 'replace github.com/withObsrvr/obsrvr-lake-writer/gen/lake_writer => ./gen/lake_writer' >> $(GO_SRC_DIR)/go.mod
+	@echo "Creating go.mod for generated code..."
+	@echo 'module $(GO_PACKAGE_BASE)/gen/lake_writer' > $(GEN_DIR)/lake_writer/go.mod
+	@echo '' >> $(GEN_DIR)/lake_writer/go.mod
+	@echo 'go 1.25' >> $(GEN_DIR)/lake_writer/go.mod
+	@echo '' >> $(GEN_DIR)/lake_writer/go.mod
+	@echo 'require (' >> $(GEN_DIR)/lake_writer/go.mod
+	@echo '	google.golang.org/grpc v1.67.1' >> $(GEN_DIR)/lake_writer/go.mod
+	@echo '	google.golang.org/protobuf v1.35.2' >> $(GEN_DIR)/lake_writer/go.mod
+	@echo ')' >> $(GEN_DIR)/lake_writer/go.mod
+	@grep -q "replace github.com/withObsrvr/obsrvr-lake-writer/gen/lake_writer" $(GO_SRC_DIR)/go.mod || echo 'replace github.com/withObsrvr/obsrvr-lake-writer/gen/lake_writer => ./gen/lake_writer' >> $(GO_SRC_DIR)/go.mod
 	@cd $(GO_SRC_DIR) && GOWORK=off go mod tidy
 	@echo "✓ Proto generation completed"
 

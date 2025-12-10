@@ -200,11 +200,8 @@ func (w *Writer) writerLoop() {
 
 // processWrite handles a single write request
 func (w *Writer) processWrite(req *pb.WriteBatchRequest) *writeResponse {
-	// TODO: Implement actual write logic
-	// For now, return a mock success response
-
-	log.Printf("Processing write: database=%s, table=%s, batch_id=%s",
-		req.Destination.Database, req.Destination.Table, req.BatchId)
+	log.Printf("Processing write: database=%s, table=%s, batch_id=%s, format=%s",
+		req.Destination.Database, req.Destination.Table, req.BatchId, req.Format)
 
 	// Validate destination
 	if req.Destination == nil || req.Destination.Database == "" || req.Destination.Table == "" {
@@ -222,16 +219,46 @@ func (w *Writer) processWrite(req *pb.WriteBatchRequest) *writeResponse {
 		}
 	}
 
-	// TODO: Parse Arrow IPC / Parquet payload
-	// TODO: Insert into DuckDB via catalog manager
-	// TODO: Return actual row count and file URIs
+	// Determine format string for catalog
+	formatStr := "parquet"
+	switch req.Format {
+	case pb.DataFormat_DATA_FORMAT_ARROW_IPC:
+		formatStr = "arrow"
+	case pb.DataFormat_DATA_FORMAT_PARQUET:
+		formatStr = "parquet"
+	case pb.DataFormat_DATA_FORMAT_JSON_LINES:
+		formatStr = "jsonl"
+	}
 
-	// Mock response for now
+	// Write to catalog via DuckDB
+	rowsWritten, err := w.catalog.WriteBatch(
+		req.Destination.Database,
+		req.Destination.Table,
+		req.Payload,
+		formatStr,
+	)
+
+	if err != nil {
+		log.Printf("❌ Write failed: %v", err)
+		return &writeResponse{
+			resp: &pb.WriteBatchResponse{
+				Status:      pb.WriteBatchResponse_STATUS_PERMANENT_ERROR,
+				Message:     fmt.Sprintf("write failed: %v", err),
+				RowsWritten: 0,
+				BatchId:     req.BatchId,
+			},
+			err: fmt.Errorf("catalog write: %w", err),
+		}
+	}
+
+	log.Printf("✓ Wrote %d rows to %s.%s (batch_id=%s)",
+		rowsWritten, req.Destination.Database, req.Destination.Table, req.BatchId)
+
 	return &writeResponse{
 		resp: &pb.WriteBatchResponse{
 			Status:      pb.WriteBatchResponse_STATUS_OK,
 			Message:     "write successful",
-			RowsWritten: 0, // TODO: actual row count
+			RowsWritten: rowsWritten,
 			BatchId:     req.BatchId,
 		},
 		err: nil,
