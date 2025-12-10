@@ -53,3 +53,5 @@ logs/
 # Temporary files
 tmp/
 temp/
+concurrent-test
+docs/shape-up/

@@ -100,7 +100,7 @@ EOF
 
             # Configuration
             config = {
-              Entrypoint = [ "/bin/lake-writer" ];
+              Entrypoint = [ "/bin/server" ];
               ExposedPorts = {
                 "50099/tcp" = {};  # gRPC API
                 "8088/tcp" = {};   # Health/Metrics
